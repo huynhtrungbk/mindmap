@@ -1,11 +1,8 @@
 # =================================================
 # Mindmap Selfhost — Production Docker Compose
-# CentOS 7 kernel 3.10 compatible (host networking for app)
-#
-# Port mapping:
-#   App:   localhost:3057 (host network, Nginx proxies here)
-#   DB:    localhost:5457 (non-default, avoids conflict with port 5432)
-#   Redis: localhost:6397 (non-default, avoids conflict with port 6379)
+# All services on same Docker bridge network
+# App exposed on port 3057 for Nginx reverse proxy
+# DB/Redis: internal only (no host port exposure)
 # =================================================
 
 services:
@@ -15,20 +12,21 @@ services:
       dockerfile: Dockerfile
     container_name: mindmap-app
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "3057:3000"
     environment:
-      - DATABASE_URL=postgresql://mindmap_user:${DB_PASSWORD}@127.0.0.1:5457/mindmap_prod?schema=public
-      - REDIS_URL=redis://127.0.0.1:6397
+      - DATABASE_URL=postgresql://mindmap_user:${DB_PASSWORD}@db:5432/mindmap_prod?schema=public
+      - REDIS_URL=redis://redis:6379
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET}
       - APP_PUBLIC_URL=https://mindmap.nerolyn.com
-      - PORT=3057
-      - HOSTNAME=0.0.0.0
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - mindmap-net
 
   db:
     image: postgres:15-alpine
@@ -38,11 +36,10 @@ services:
       POSTGRES_USER: mindmap_user
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: mindmap_prod
-    ports:
-      # 0.0.0.0 due to CentOS 7 kernel 3.10 docker-proxy issue
-      - "5457:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    networks:
+      - mindmap-net
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U mindmap_user -d mindmap_prod" ]
       interval: 5s
@@ -54,11 +51,10 @@ services:
     container_name: mindmap-redis-prod
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
-    ports:
-      # 0.0.0.0 due to CentOS 7 kernel 3.10 docker-proxy issue
-      - "6397:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - mindmap-net
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
@@ -70,3 +66,10 @@ volumes:
     name: mindmap-db-data
   redis_data:
     name: mindmap-redis-data
+
+networks:
+  mindmap-net:
+    name: mindmap-network
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1450"
