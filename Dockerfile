@@ -56,11 +56,10 @@ COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/src/generated ./src/generated
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 
-# Need dotenv for prisma.config.ts
+# Need dotenv for prisma.config.ts, tsx for running it
 COPY --from=builder /app/node_modules/dotenv ./node_modules/dotenv
 
 USER nextjs
