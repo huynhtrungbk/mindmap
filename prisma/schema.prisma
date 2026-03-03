@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Users ───────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  mindmaps       Mindmap[]
+  versions       MindmapVersion[]
+  collaborations MapCollaborator[]
+
+  @@map("users")
+}
+
+// ─── Mindmaps ────────────────────────────────────────
+
+model Mindmap {
+  id            String   @id @default(uuid()) @db.Uuid
+  ownerId       String   @map("owner_id") @db.Uuid
+  title         String   @default("Untitled")
+  viewportX     Float    @default(0) @map("viewport_x")
+  viewportY     Float    @default(0) @map("viewport_y")
+  viewportZoom  Float    @default(1) @map("viewport_zoom")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  owner         User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  nodes         MindmapNode[]
+  edges         MindmapEdge[]
+  collaborators MapCollaborator[]
+  versions MindmapVersion[]
+
+  @@map("mindmaps")
+}
+
+// ─── Nodes ───────────────────────────────────────────
+
+model MindmapNode {
+  id         String   @id @default(uuid()) @db.Uuid
+  mindmapId  String   @map("mindmap_id") @db.Uuid
+  parentId   String?  @map("parent_id") @db.Uuid
+  sortIndex  Int      @default(0) @map("sort_index")
+  positionX  Float    @default(0) @map("position_x")
+  positionY  Float    @default(0) @map("position_y")
+  title      String   @default("")
+  collapsed  Boolean  @default(false)
+  styleJson  Json?    @map("style_json") @db.JsonB
+  noteDoc    Json?    @map("note_doc") @db.JsonB
+  notePlain  String   @default("") @map("note_plain") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  mindmap     Mindmap       @relation(fields: [mindmapId], references: [id], onDelete: Cascade)
+  parent      MindmapNode?  @relation("NodeTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    MindmapNode[] @relation("NodeTree")
+  sourceEdges MindmapEdge[] @relation("EdgeSource")
+  targetEdges MindmapEdge[] @relation("EdgeTarget")
+  attachments Attachment[]
+
+  @@index([mindmapId, parentId, sortIndex])
+  @@map("mindmap_nodes")
+}
+
+// ─── Edges ───────────────────────────────────────────
+
+model MindmapEdge {
+  id        String   @id @default(uuid()) @db.Uuid
+  mindmapId String   @map("mindmap_id") @db.Uuid
+  sourceId  String   @map("source_id") @db.Uuid
+  targetId  String   @map("target_id") @db.Uuid
+  type      String   @default("default")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  mindmap Mindmap     @relation(fields: [mindmapId], references: [id], onDelete: Cascade)
+  source  MindmapNode @relation("EdgeSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target  MindmapNode @relation("EdgeTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@map("mindmap_edges")
+}
+
+// ─── Attachments ─────────────────────────────────────
+
+model Attachment {
+  id        String   @id @default(uuid()) @db.Uuid
+  nodeId    String   @map("node_id") @db.Uuid
+  bucket    String   @default("mindmap")
+  objectKey String   @map("object_key")
+  filename  String
+  mime      String
+  size      Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  node MindmapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+// ─── Versions ────────────────────────────────────────
+
+model MindmapVersion {
+  id           String   @id @default(uuid()) @db.Uuid
+  mindmapId    String   @map("mindmap_id") @db.Uuid
+  versionNo    Int      @map("version_no")
+  snapshotJson Json     @map("snapshot_json") @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at")
+  createdBy    String   @map("created_by") @db.Uuid
+
+  mindmap Mindmap @relation(fields: [mindmapId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@unique([mindmapId, versionNo])
+  @@map("mindmap_versions")
+}
+
+// ─── Collaborators ───────────────────────────────────
+
+model MapCollaborator {
+  id        String   @id @default(uuid()) @db.Uuid
+  mindmapId String   @map("mindmap_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  email     String?
+  role      String   @default("editor") // "editor" | "viewer"
+  token     String   @unique @default(uuid())
+  accepted  Boolean  @default(false)
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  mindmap Mindmap @relation(fields: [mindmapId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([mindmapId, userId])
+  @@map("map_collaborators")
+}
