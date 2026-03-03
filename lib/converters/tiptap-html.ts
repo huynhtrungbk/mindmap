@@ -75,6 +75,11 @@ function renderNode(node: TiptapNode): string {
             return `<td>${children}</td>`;
         case "tableHeader":
             return `<th>${children}</th>`;
+        case "image": {
+            const src = node.attrs?.src || "";
+            const alt = node.attrs?.alt || "";
+            return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" />`;
+        }
         default:
             return children;
     }

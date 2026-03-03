@@ -2,6 +2,7 @@ import {
     Document,
     Paragraph,
     TextRun,
+    ImageRun,
     HeadingLevel,
     Packer,
     AlignmentType,
@@ -43,7 +44,7 @@ export async function difToDocx(title: string, roots: DifNode[]): Promise<Buffer
         })
     );
 
-    function render(nodes: DifNode[], depth: number) {
+    async function render(nodes: DifNode[], depth: number) {
         for (const node of nodes) {
             const level = Math.min(depth, 5);
 
@@ -59,7 +60,7 @@ export async function difToDocx(title: string, roots: DifNode[]): Promise<Buffer
             // Rich note content — parse HTML to DOCX elements
             const html = node.note.doc ? tiptapJsonToHtml(node.note.doc) : "";
             if (html.trim()) {
-                const noteElements = htmlToDocxElements(html);
+                const noteElements = await htmlToDocxElements(html);
                 elements.push(...noteElements);
             } else if (node.note.plain.trim()) {
                 // Fallback: plain text note
@@ -74,11 +75,11 @@ export async function difToDocx(title: string, roots: DifNode[]): Promise<Buffer
                 }
             }
 
-            render(node.children, depth + 1);
+            await render(node.children, depth + 1);
         }
     }
 
-    render(roots, 0);
+    await render(roots, 0);
 
     const doc = new Document({
         sections: [{ children: elements }],
@@ -103,15 +104,41 @@ interface InlineRun {
 /**
  * Parse simple HTML string into DOCX Paragraph/Table elements.
  */
-function htmlToDocxElements(html: string): (Paragraph | DocxTable)[] {
+async function htmlToDocxElements(html: string): Promise<(Paragraph | DocxTable)[]> {
     const results: (Paragraph | DocxTable)[] = [];
 
     // Split by block-level tags
-    const blocks = html.split(/(?=<(?:p|h[1-6]|ul|ol|blockquote|pre|table|hr)[\s>/])|(?<=<\/(?:p|h[1-6]|ul|ol|blockquote|pre|table)>)/);
+    const blocks = html.split(/(?=<(?:p|h[1-6]|ul|ol|blockquote|pre|table|hr|img)[\s>/])|(?<=<\/(?:p|h[1-6]|ul|ol|blockquote|pre|table)>)/);
 
     for (const block of blocks) {
         const trimmed = block.trim();
         if (!trimmed) continue;
+
+        // Image
+        const imgMatch = trimmed.match(/^<img\s+[^>]*src="([^"]+)"[^>]*\/?>/);
+        if (imgMatch) {
+            const src = unescapeHtml(imgMatch[1]);
+            try {
+                const imgData = await fetchImageAsBuffer(src);
+                if (imgData) {
+                    results.push(new Paragraph({
+                        children: [new ImageRun({
+                            data: imgData,
+                            transformation: { width: 400, height: 300 },
+                            type: "png",
+                        })],
+                        spacing: { before: 100, after: 100 },
+                    }));
+                }
+            } catch {
+                // Skip images that fail to fetch
+                results.push(new Paragraph({
+                    children: [new TextRun({ text: `[Image: ${src}]`, italics: true, color: "999999", size: 20 })],
+                    spacing: { after: 60 },
+                }));
+            }
+            continue;
+        }
 
         // Horizontal rule
         if (trimmed.match(/^<hr\s*\/?>/)) {
@@ -364,4 +391,21 @@ function unescapeHtml(str: string): string {
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
         .replace(/&quot;/g, '"');
+}
+
+/** Fetch an image URL and return its data as ArrayBuffer for DOCX embedding */
+async function fetchImageAsBuffer(src: string): Promise<ArrayBuffer | null> {
+    try {
+        // Handle relative URLs by prepending the app URL
+        let url = src;
+        if (src.startsWith("/")) {
+            const base = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+            url = `${base}${src}`;
+        }
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return null;
+        return await res.arrayBuffer();
+    } catch {
+        return null;
+    }
 }
