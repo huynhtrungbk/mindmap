@@ -75,10 +75,17 @@ export async function generateMindmapPdf(
             y += 3;
         }
 
-        // Note content — prefer rich HTML stripped to plain text, fallback to notePlain
-        const noteText = node.note.html
-            ? htmlToPlainText(node.note.html)
-            : node.note.plain.trim();
+        // Note content — extract from TipTap JSON doc, fallback to notePlain
+        let noteText = "";
+        if (node.note.doc && typeof node.note.doc === "object") {
+            noteText = extractPlainFromDoc(node.note.doc as { content?: unknown[] });
+        }
+        if (!noteText && node.note.html) {
+            noteText = htmlToPlainText(node.note.html);
+        }
+        if (!noteText) {
+            noteText = node.note.plain.trim();
+        }
 
         if (noteText) {
             y += 1;
@@ -131,4 +138,23 @@ export async function generateMindmapPdf(
     }
 
     return { blob: pdf.output("blob"), pageCount: pages };
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/** Recursively extract plain text from a TipTap JSON document */
+function extractPlainFromDoc(doc: { content?: unknown[] }): string {
+    if (!doc || !doc.content) return "";
+    const lines: string[] = [];
+    function walk(nodes: any[]) {
+        for (const node of nodes) {
+            if (node.type === "text" && node.text) {
+                lines.push(node.text);
+            } else if (node.content) {
+                walk(node.content);
+                lines.push("\n");
+            }
+        }
+    }
+    walk(doc.content as any[]);
+    return lines.join("").replace(/\n{3,}/g, "\n\n").trim();
 }
