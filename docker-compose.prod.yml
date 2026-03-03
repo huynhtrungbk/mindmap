@@ -71,3 +71,6 @@ networks:
   mindmap-net:
     name: mindmap-network
     driver: bridge
+    ipam:
+      config:
+        - subnet: 10.57.0.0/20
