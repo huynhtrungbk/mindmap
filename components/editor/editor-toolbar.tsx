@@ -67,40 +67,64 @@ export function EditorToolbar() {
 
     async function handleExportMindmapPDF() {
         try {
-            showToast("Generating Mindmap PDF…", "success");
-            const canvas = document.querySelector(".react-flow") as HTMLElement;
-            if (!canvas) { showToast("Switch to Map view first", "error"); return; }
-            const { default: html2canvas } = await import("html2canvas");
+            showToast("Generating vector PDF…", "success");
+            const state = useMindmapStore.getState();
+            const { mindmapToSvg } = await import("@/lib/converters/mindmap-svg-export");
             const { jsPDF } = await import("jspdf");
-            const c = await html2canvas(canvas, { backgroundColor: null, scale: 2, useCORS: true });
-            const imgData = c.toDataURL("image/png");
-            const w = c.width;
-            const h = c.height;
-            const pdf = new jsPDF({ orientation: w > h ? "landscape" : "portrait", unit: "px", format: [w, h] });
-            pdf.addImage(imgData, "PNG", 0, 0, w, h);
-            pdf.save(`${mapTitle || "mindmap"} - Mindmap.pdf`);
-            showToast("Exported Mindmap PDF", "success");
+            const svgStr = mindmapToSvg(state.nodes, state.edges, {
+                nodeColor: state.nodeColor || "#1e1e3a",
+                nodeTextColor: state.nodeTextColor || "#e0e0e0",
+                nodeBorderColor: state.nodeBorderColor || "#6c63ff",
+                fontSize: state.nodeFontSize,
+                paddingH: state.nodePaddingH * 2,
+                paddingV: state.nodePaddingV * 2,
+                edgeWidth: state.edgeWidth,
+            });
+            // Parse SVG dimensions
+            const wMatch = svgStr.match(/width="(\d+)"/);
+            const hMatch = svgStr.match(/height="(\d+)"/);
+            const svgW = wMatch ? parseInt(wMatch[1]) : 800;
+            const svgH = hMatch ? parseInt(hMatch[1]) : 600;
+            const pdf = new jsPDF({
+                orientation: svgW > svgH ? "landscape" : "portrait",
+                unit: "px",
+                format: [svgW + 20, svgH + 20],
+            });
+            // Use SVG as embedded image via data URI
+            const svgBlob = new Blob([svgStr], { type: "image/svg+xml" });
+            const svgUrl = URL.createObjectURL(svgBlob);
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = svgW * 2;
+                canvas.height = svgH * 2;
+                const ctx = canvas.getContext("2d")!;
+                ctx.scale(2, 2);
+                ctx.drawImage(img, 0, 0, svgW, svgH);
+                const imgData = canvas.toDataURL("image/png");
+                pdf.addImage(imgData, "PNG", 10, 10, svgW, svgH);
+                pdf.save(`${mapTitle || "mindmap"} - Mindmap.pdf`);
+                URL.revokeObjectURL(svgUrl);
+                showToast("Exported Mindmap PDF", "success");
+            };
+            img.onerror = () => { showToast("PDF render failed", "error"); };
+            img.src = svgUrl;
         } catch (err) { console.error(err); showToast("Mindmap PDF export failed", "error"); }
     }
 
     function handleExportMindmapHTML() {
         try {
-            const canvas = document.querySelector(".react-flow") as HTMLElement;
-            if (!canvas) { showToast("Switch to Map view first", "error"); return; }
-            const clone = canvas.cloneNode(true) as HTMLElement;
-            // Gather all stylesheets
-            const styles = Array.from(document.styleSheets).map(s => {
-                try { return Array.from(s.cssRules).map(r => r.cssText).join("\n"); }
-                catch { return ""; }
-            }).join("\n");
-            const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${mapTitle || "Mindmap"}</title>
-<style>${styles}</style></head>
-<body style="margin:0;background:#0f0f23">${clone.outerHTML}</body></html>`;
+            const state = useMindmapStore.getState();
+            const { mindmapToInteractiveHtml } = require("@/lib/converters/mindmap-html-export") as typeof import("@/lib/converters/mindmap-html-export");
+            const html = mindmapToInteractiveHtml(state.nodes, mapTitle, {
+                nodeColor: state.nodeColor || "#1e1e3a",
+                nodeTextColor: state.nodeTextColor || "#e0e0e0",
+                bgColor: "#0f0f23",
+            });
             const blob = new Blob([html], { type: "text/html" });
             downloadBlob(blob, `${mapTitle || "mindmap"} - Mindmap.html`);
-            showToast("Exported Mindmap HTML", "success");
-        } catch { showToast("HTML export failed", "error"); }
+            showToast("Exported interactive HTML", "success");
+        } catch (err) { console.error(err); showToast("HTML export failed", "error"); }
     }
 
     function downloadBlob(blob: Blob, filename: string) {
