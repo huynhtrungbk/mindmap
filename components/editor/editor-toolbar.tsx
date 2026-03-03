@@ -5,7 +5,6 @@ import { useMindmapStore } from "@/stores/mindmap-store";
 import type { ViewMode, SidePanelMode, LayoutMode, EdgeStyle } from "@/stores/mindmap-store";
 import { showToast } from "@/components/ui/toast";
 import { storeToDif } from "@/lib/converters/dif-client";
-import { generateMindmapPdf } from "@/lib/converters/pdf-generator";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 import { ThemePicker } from "./theme-picker";
 import { NodeStyleDialog } from "./node-style-dialog";
@@ -57,11 +56,19 @@ export function EditorToolbar() {
 
     async function handleExportPDF() {
         try {
+            showToast("Preparing PDF…", "success");
+            // Build same TipTap JSON as DOC view, then render to HTML for printing
             const { nodes } = useMindmapStore.getState();
             const difTree = storeToDif(nodes);
-            const { blob } = await generateMindmapPdf(difTree, mapTitle);
-            downloadBlob(blob, `${mapTitle || "mindmap"} - Word.pdf`);
-            showToast("Exported Word PDF", "success");
+            const html = difToHtmlForPrint(difTree, mapTitle);
+            const printWin = window.open("", "_blank");
+            if (!printWin) { showToast("Please allow popups to export PDF", "error"); return; }
+            printWin.document.write(html);
+            printWin.document.close();
+            // Wait for images to load, then print
+            printWin.onload = () => {
+                setTimeout(() => { printWin.print(); }, 500);
+            };
         } catch { showToast("PDF export failed", "error"); }
     }
 
@@ -270,7 +277,6 @@ export function EditorToolbar() {
         { mode: "mindmap", icon: "🧠", label: "Map" },
         { mode: "markdown", icon: "📝", label: "MD" },
         { mode: "document", icon: "📄", label: "Doc" },
-        { mode: "pdf", icon: "📋", label: "PDF" },
     ];
 
     const panelModes: { mode: SidePanelMode; label: string }[] = [
@@ -443,4 +449,169 @@ export function EditorToolbar() {
             {showShare && <ShareDialog mapId={mapId || ""} isOwner={isOwner} onClose={() => setShowShare(false)} />}
         </>
     );
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import type { DifNode } from "@/lib/converters/dif";
+
+const PRINT_DEPTH_COLORS = ["#6c63ff", "#06b6d4", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6"];
+
+/**
+ * Convert DIF tree to a print-ready HTML page that matches DOC view formatting.
+ * Supports headings, note blockquotes with images, depth-colored accents.
+ */
+function difToHtmlForPrint(roots: DifNode[], title: string): string {
+    let body = "";
+
+    function renderNode(node: DifNode, depth: number) {
+        const level = Math.min(depth + 1, 6);
+        const col = PRINT_DEPTH_COLORS[Math.min(depth, 5)];
+        const sizes = ["2em", "1.5em", "1.25em", "1.1em", "1em", "0.95em"];
+        const fontSize = sizes[Math.min(depth, 5)];
+        const weight = depth < 2 ? "700" : "600";
+
+        // Heading
+        body += `<h${level} style="color:${col};font-size:${fontSize};font-weight:${weight};margin:0.8em 0 0.3em;border-left:3px solid ${col};padding-left:10px">${esc(node.title || "Untitled")}</h${level}>`;
+
+        // Note content — render from TipTap JSON doc (with images), fallback to plain text
+        if (node.note.doc && typeof node.note.doc === "object") {
+            const noteDoc = node.note.doc as { content?: any[] };
+            if (noteDoc.content && noteDoc.content.length > 0) {
+                const filtered = noteDoc.content.filter((b: any) => b.type !== "doc");
+                if (filtered.length > 0) {
+                    body += `<blockquote style="border-left:3px solid ${col}33;padding-left:12px;margin:0.3em 0 0.6em;color:#555">`;
+                    for (const block of filtered) {
+                        body += renderBlock(block);
+                    }
+                    body += `</blockquote>`;
+                }
+            }
+        } else if (node.note.plain.trim()) {
+            body += `<blockquote style="border-left:3px solid ${col}33;padding-left:12px;margin:0.3em 0 0.6em;color:#555">`;
+            for (const line of node.note.plain.trim().split("\n")) {
+                body += `<p style="margin:0.2em 0">${esc(line)}</p>`;
+            }
+            body += `</blockquote>`;
+        }
+
+        for (const child of node.children) {
+            renderNode(child, depth + 1);
+        }
+    }
+
+    for (const root of roots) {
+        renderNode(root, 0);
+    }
+
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>${esc(title || "Mindmap Document")}</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,sans-serif;color:#222;max-width:800px;margin:0 auto;padding:40px 50px;line-height:1.7}
+h1,h2,h3,h4,h5,h6{line-height:1.3}
+blockquote{font-style:normal}
+img{max-width:100%;height:auto;border-radius:6px;margin:8px 0}
+ul,ol{padding-left:1.5em;margin:0.3em 0}
+code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:0.9em}
+pre{background:#f5f5f5;padding:12px 16px;border-radius:6px;overflow-x:auto;font-family:monospace;font-size:0.85em;margin:0.4em 0}
+a{color:#6c63ff}
+@media print{body{padding:20px 30px;max-width:100%}}
+</style>
+</head>
+<body>
+<div style="margin-bottom:24px;border-bottom:2px solid #6c63ff;padding-bottom:16px">
+<h1 style="font-size:2.2em;color:#222;margin:0;border:none;padding:0">${esc(title || "Mindmap Document")}</h1>
+<p style="color:#999;font-size:0.85em;margin-top:4px">Generated: ${new Date().toLocaleDateString()}</p>
+</div>
+${body}
+</body></html>`;
+}
+
+function renderBlock(b: any): string {
+    if (!b) return "";
+    if (b.type === "paragraph") {
+        const inner = renderInlineNodes(b.content);
+        return `<p style="margin:0.3em 0">${inner || "<br>"}</p>`;
+    }
+    if (b.type === "heading") {
+        const lvl = b.attrs?.level || 2;
+        return `<h${lvl} style="margin:0.5em 0 0.2em">${renderInlineNodes(b.content)}</h${lvl}>`;
+    }
+    if (b.type === "image") {
+        const src = b.attrs?.src || "";
+        return `<img src="${esc(src)}" style="max-width:100%;border-radius:6px;margin:6px 0"/>`;
+    }
+    if (b.type === "bulletList" || b.type === "orderedList") {
+        const tag = b.type === "bulletList" ? "ul" : "ol";
+        let items = "";
+        if (b.content) {
+            for (const li of b.content) {
+                if (li.content) {
+                    let inner = "";
+                    for (const c of li.content) inner += renderBlock(c);
+                    items += `<li>${inner}</li>`;
+                }
+            }
+        }
+        return `<${tag} style="padding-left:1.5em;margin:0.3em 0">${items}</${tag}>`;
+    }
+    if (b.type === "blockquote") {
+        let inner = "";
+        if (b.content) for (const c of b.content) inner += renderBlock(c);
+        return `<blockquote style="border-left:3px solid #ddd;padding-left:10px;margin:0.4em 0;color:#666;font-style:italic">${inner}</blockquote>`;
+    }
+    if (b.type === "codeBlock") {
+        return `<pre>${renderInlineNodes(b.content)}</pre>`;
+    }
+    if (b.type === "taskList") {
+        let items = "";
+        if (b.content) {
+            for (const ti of b.content) {
+                const checked = ti.attrs?.checked ? "☑" : "☐";
+                let inner = "";
+                if (ti.content) for (const c of ti.content) inner += renderBlock(c);
+                items += `<div style="margin:2px 0">${checked} ${inner}</div>`;
+            }
+        }
+        return items;
+    }
+    if (b.content) {
+        let inner = "";
+        for (const c of b.content) inner += renderBlock(c);
+        return inner;
+    }
+    return "";
+}
+
+function renderInlineNodes(content: any[] | undefined): string {
+    if (!content) return "";
+    let h = "";
+    for (const node of content) {
+        if (node.type === "text") {
+            let t = esc(node.text || "");
+            if (node.marks) {
+                for (const m of node.marks) {
+                    if (m.type === "bold") t = `<strong>${t}</strong>`;
+                    if (m.type === "italic") t = `<em>${t}</em>`;
+                    if (m.type === "underline") t = `<u>${t}</u>`;
+                    if (m.type === "strike") t = `<s>${t}</s>`;
+                    if (m.type === "code") t = `<code>${t}</code>`;
+                    if (m.type === "link" && m.attrs?.href) t = `<a href="${esc(m.attrs.href)}">${t}</a>`;
+                    if (m.type === "highlight") t = `<mark>${t}</mark>`;
+                }
+            }
+            h += t;
+        }
+        if (node.type === "image") {
+            h += `<img src="${esc(node.attrs?.src || "")}" style="max-width:100%;border-radius:6px;margin:4px 0"/>`;
+        }
+        if (node.type === "hardBreak") h += "<br>";
+    }
+    return h;
+}
+
+function esc(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

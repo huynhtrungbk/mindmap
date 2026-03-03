@@ -6,7 +6,7 @@ import { MindmapCanvas } from "@/components/editor/mindmap-canvas";
 import { SidePanel } from "@/components/editor/side-panel";
 import { MarkdownView } from "@/components/editor/markdown-view";
 import { DocumentView } from "@/components/editor/document-view";
-import { PdfView } from "@/components/editor/pdf-view";
+
 import { ToastContainer, showToast } from "@/components/ui/toast";
 import { useMindmapStore } from "@/stores/mindmap-store";
 import type { MindmapNodeData, MindmapEdgeData } from "@/stores/mindmap-store";
@@ -122,7 +122,7 @@ export function MapEditorClient({ mapId, mapTitle, role, initialNodes, initialEd
                 </div>
                 {viewMode === "markdown" && <MarkdownView />}
                 {viewMode === "document" && <DocumentView />}
-                {viewMode === "pdf" && <PdfView />}
+
             </div>
             <ThemeInitializer />
             <ToastContainer />
