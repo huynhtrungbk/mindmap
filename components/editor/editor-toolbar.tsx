@@ -69,46 +69,95 @@ export function EditorToolbar() {
         try {
             showToast("Generating vector PDF…", "success");
             const state = useMindmapStore.getState();
-            const { mindmapToSvg } = await import("@/lib/converters/mindmap-svg-export");
             const { jsPDF } = await import("jspdf");
-            const svgStr = mindmapToSvg(state.nodes, state.edges, {
-                nodeColor: state.nodeColor || "#1e1e3a",
-                nodeTextColor: state.nodeTextColor || "#e0e0e0",
-                nodeBorderColor: state.nodeBorderColor || "#6c63ff",
-                fontSize: state.nodeFontSize,
-                paddingH: state.nodePaddingH * 2,
-                paddingV: state.nodePaddingV * 2,
-                edgeWidth: state.edgeWidth,
+            const nodes = state.nodes;
+            const edges = state.edges;
+            if (nodes.length === 0) { showToast("No nodes to export", "error"); return; }
+
+            // Calculate bounding box from node positions
+            const PAD_H = 12, PAD_V = 6, FONT_SIZE = 11, CH_W = FONT_SIZE * 0.55;
+            const nodeMap = new Map(nodes.map(n => [n.id, n]));
+            const DC = ["#6c63ff", "#06b6d4", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6"];
+
+            function getDepth(id: string): number {
+                const n = nodeMap.get(id);
+                if (!n || !n.parentId) return 0;
+                return getDepth(n.parentId) + 1;
+            }
+
+            // Compute node boxes
+            const boxes = nodes.map(n => {
+                const tw = Math.max((n.title || "Untitled").length * CH_W, 40);
+                const w = tw + PAD_H * 2;
+                const h = FONT_SIZE + PAD_V * 2 + 4;
+                return { id: n.id, x: n.positionX, y: n.positionY, w, h, title: n.title || "Untitled", depth: getDepth(n.id) };
             });
-            // Parse SVG dimensions
-            const wMatch = svgStr.match(/width="(\d+)"/);
-            const hMatch = svgStr.match(/height="(\d+)"/);
-            const svgW = wMatch ? parseInt(wMatch[1]) : 800;
-            const svgH = hMatch ? parseInt(hMatch[1]) : 600;
+
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const b of boxes) {
+                minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+                maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
+            }
+
+            const margin = 40;
+            const pdfW = maxX - minX + margin * 2;
+            const pdfH = maxY - minY + margin * 2;
+            const ox = -minX + margin;
+            const oy = -minY + margin;
+
             const pdf = new jsPDF({
-                orientation: svgW > svgH ? "landscape" : "portrait",
-                unit: "px",
-                format: [svgW + 20, svgH + 20],
+                orientation: pdfW > pdfH ? "landscape" : "portrait",
+                unit: "px", format: [pdfW, pdfH],
             });
-            // Use SVG as embedded image via data URI
-            const svgBlob = new Blob([svgStr], { type: "image/svg+xml" });
-            const svgUrl = URL.createObjectURL(svgBlob);
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement("canvas");
-                canvas.width = svgW * 2;
-                canvas.height = svgH * 2;
-                const ctx = canvas.getContext("2d")!;
-                ctx.scale(2, 2);
-                ctx.drawImage(img, 0, 0, svgW, svgH);
-                const imgData = canvas.toDataURL("image/png");
-                pdf.addImage(imgData, "PNG", 10, 10, svgW, svgH);
-                pdf.save(`${mapTitle || "mindmap"} - Mindmap.pdf`);
-                URL.revokeObjectURL(svgUrl);
-                showToast("Exported Mindmap PDF", "success");
-            };
-            img.onerror = () => { showToast("PDF render failed", "error"); };
-            img.src = svgUrl;
+
+            // Background
+            pdf.setFillColor(15, 15, 35);
+            pdf.rect(0, 0, pdfW, pdfH, "F");
+
+            // Draw edges as bezier curves
+            for (const edge of edges) {
+                const src = boxes.find(b => b.id === edge.source);
+                const tgt = boxes.find(b => b.id === edge.target);
+                if (!src || !tgt) continue;
+                const x1 = src.x + src.w + ox, y1 = src.y + src.h / 2 + oy;
+                const x2 = tgt.x + ox, y2 = tgt.y + tgt.h / 2 + oy;
+                const mx = (x1 + x2) / 2;
+                const col = DC[Math.min(tgt.depth, 5)];
+                const r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), bl = parseInt(col.slice(5, 7), 16);
+                pdf.setDrawColor(r, g, bl);
+                pdf.setLineWidth(1.2);
+                // Approximate bezier with line segments
+                const steps = 20;
+                let prevX = x1, prevY = y1;
+                for (let i = 1; i <= steps; i++) {
+                    const t = i / steps;
+                    const t2 = t * t, t3 = t2 * t;
+                    const mt = 1 - t, mt2 = mt * mt, mt3 = mt2 * mt;
+                    const cx = mt3 * x1 + 3 * mt2 * t * mx + 3 * mt * t2 * mx + t3 * x2;
+                    const cy = mt3 * y1 + 3 * mt2 * t * y1 + 3 * mt * t2 * y2 + t3 * y2;
+                    pdf.line(prevX, prevY, cx, cy);
+                    prevX = cx; prevY = cy;
+                }
+            }
+
+            // Draw nodes
+            for (const b of boxes) {
+                const nx = b.x + ox, ny = b.y + oy;
+                const col = DC[Math.min(b.depth, 5)];
+                const r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), bl = parseInt(col.slice(5, 7), 16);
+                // Node background
+                pdf.setFillColor(30, 30, 58);
+                pdf.setDrawColor(r, g, bl);
+                pdf.setLineWidth(1.2);
+                pdf.roundedRect(nx, ny, b.w, b.h, 4, 4, "FD");
+                // Title text
+                pdf.setFontSize(FONT_SIZE);
+                pdf.setTextColor(224, 224, 224);
+                pdf.text(b.title, nx + PAD_H, ny + PAD_V + FONT_SIZE);
+            }
+
+            pdf.save(`${mapTitle || "mindmap"} - Mindmap.pdf`);
+            showToast("Exported Mindmap PDF", "success");
         } catch (err) { console.error(err); showToast("Mindmap PDF export failed", "error"); }
     }
 
