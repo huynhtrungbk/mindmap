@@ -1,0 +1,48 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build output
+.next
+out
+build
+
+# Git
+.git
+.gitignore
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Docs & setup
+docs
+.setup
+README.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test & debug
+coverage
+npm-debug.log*
+*.log
+
+# Deployment scripts
+deploy-vps.sh
+scripts/deploy.js

@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: ../../
+      args:
+        # Thay x.x.x.x hoặc localhost thành tên miền của app nếu đã public trên server
+        NEXT_PUBLIC_APP_URL: "https://${DOMAIN:-mindmap.nerolyn.com}"
+        NEXT_PUBLIC_SOCKET_URL: "https://${DOMAIN:-mindmap.nerolyn.com}"
+    restart: unless-stopped
+    ports:
+      # Expose nội bộ cho Nginx làm Reverse Proxy. Không expose public 0.0.0.0!
+      - "127.0.0.1:3057:3000"
+    env_file:
+      - .env.production
+    depends_on:
+      - db
+      - redis
+    networks:
+      - mindmap-production
+
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-root}
+      POSTGRES_PASSWORD: ${DB_PASS:-secretpassword123}
+      POSTGRES_DB: ${DB_NAME:-mindmap}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - mindmap-production
+    # ❌ KHÔNG MỞ PORT 5432 RA NGOÀI HOST ĐỂ ĐẢM BẢO BẢO MẬT & KHÔNG CONFLICT! (Safe from clash)
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - mindmap-production
+    # ❌ KHÔNG MỞ PORT 6379 RA NGOÀI HOST ĐỂ ĐẢM BẢO BẢO MẬT & KHÔNG CONFLICT!
+
+volumes:
+  db_data:
+  redis_data:
+
+
+networks:
+  mindmap-production:
+    driver: bridge
