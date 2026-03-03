@@ -61,15 +61,22 @@ export function DocumentView() {
     });
 
     // Sync store → TipTap editor (external system, not React state)
+    // Use a serialized key to detect actual node content changes
+    const nodesKey = useMemo(() =>
+        nodes.map((n) => `${n.id}:${n.title}:${n.parentId}:${n.sortIndex}`).join("|"),
+        [nodes]
+    );
+
     useEffect(() => {
-        if (!editor || isInternalUpdate.current) {
+        if (!editor) return;
+        if (isInternalUpdate.current) {
             isInternalUpdate.current = false;
             return;
         }
         const difTree = storeToDif(nodes);
         const tiptapJson = difToTiptapJson(difTree);
         editor.commands.setContent(tiptapJson);
-    }, [editor, nodes]);
+    }, [editor, nodesKey]);
 
     // Word count
     const wordCount = editor?.getText().split(/\s+/).filter(Boolean).length ?? 0;
