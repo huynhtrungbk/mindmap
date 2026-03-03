@@ -60,9 +60,47 @@ export function EditorToolbar() {
             const { nodes } = useMindmapStore.getState();
             const difTree = storeToDif(nodes);
             const { blob } = await generateMindmapPdf(difTree, mapTitle);
-            downloadBlob(blob, `${mapTitle || "mindmap"}.pdf`);
-            showToast("Exported as PDF", "success");
+            downloadBlob(blob, `${mapTitle || "mindmap"} - Word.pdf`);
+            showToast("Exported Word PDF", "success");
         } catch { showToast("PDF export failed", "error"); }
+    }
+
+    async function handleExportMindmapPDF() {
+        try {
+            showToast("Generating Mindmap PDF…", "success");
+            const canvas = document.querySelector(".react-flow") as HTMLElement;
+            if (!canvas) { showToast("Switch to Map view first", "error"); return; }
+            const { default: html2canvas } = await import("html2canvas");
+            const { jsPDF } = await import("jspdf");
+            const c = await html2canvas(canvas, { backgroundColor: null, scale: 2, useCORS: true });
+            const imgData = c.toDataURL("image/png");
+            const w = c.width;
+            const h = c.height;
+            const pdf = new jsPDF({ orientation: w > h ? "landscape" : "portrait", unit: "px", format: [w, h] });
+            pdf.addImage(imgData, "PNG", 0, 0, w, h);
+            pdf.save(`${mapTitle || "mindmap"} - Mindmap.pdf`);
+            showToast("Exported Mindmap PDF", "success");
+        } catch (err) { console.error(err); showToast("Mindmap PDF export failed", "error"); }
+    }
+
+    function handleExportMindmapHTML() {
+        try {
+            const canvas = document.querySelector(".react-flow") as HTMLElement;
+            if (!canvas) { showToast("Switch to Map view first", "error"); return; }
+            const clone = canvas.cloneNode(true) as HTMLElement;
+            // Gather all stylesheets
+            const styles = Array.from(document.styleSheets).map(s => {
+                try { return Array.from(s.cssRules).map(r => r.cssText).join("\n"); }
+                catch { return ""; }
+            }).join("\n");
+            const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${mapTitle || "Mindmap"}</title>
+<style>${styles}</style></head>
+<body style="margin:0;background:#0f0f23">${clone.outerHTML}</body></html>`;
+            const blob = new Blob([html], { type: "text/html" });
+            downloadBlob(blob, `${mapTitle || "mindmap"} - Mindmap.html`);
+            showToast("Exported Mindmap HTML", "success");
+        } catch { showToast("HTML export failed", "error"); }
     }
 
     function downloadBlob(blob: Blob, filename: string) {
@@ -247,9 +285,12 @@ export function EditorToolbar() {
                         <div className="toolbar-dropdown">
                             <button title="Export">📤 Export</button>
                             <div className="dropdown-menu">
-                                <button onClick={handleExportMD}>Markdown (.md)</button>
-                                <button onClick={handleExportDOCX}>Word (.docx)</button>
-                                <button onClick={handleExportPDF}>PDF (.pdf)</button>
+                                <button onClick={handleExportMD}>📝 Markdown (.md)</button>
+                                <button onClick={handleExportDOCX}>📄 Word (.docx)</button>
+                                <button onClick={handleExportPDF}>📋 Word PDF (.pdf)</button>
+                                <hr style={{ margin: '4px 8px', border: 'none', borderTop: '1px solid var(--color-border)' }} />
+                                <button onClick={handleExportMindmapPDF}>🧠 Mindmap PDF (.pdf)</button>
+                                <button onClick={handleExportMindmapHTML}>🌐 Mindmap HTML (.html)</button>
                             </div>
                         </div>
                         <button onClick={handleImportClick} title="Import .md / .docx">📥 Import</button>
