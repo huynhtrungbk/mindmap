@@ -24,7 +24,13 @@ COPY . .
 RUN npx prisma generate
 
 # Build Next.js (standalone output)
+# JWT_SECRET and DATABASE_URL are needed at build time because Next.js
+# evaluates server modules during page data collection. These are
+# build-time-only dummy values, NOT used at runtime.
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV JWT_SECRET="build-time-placeholder-not-used-at-runtime"
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+ENV NODE_ENV=production
 RUN npm run build
 
 # --- Stage 3: Production runner ---
