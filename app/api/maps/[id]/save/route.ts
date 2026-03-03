@@ -111,14 +111,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
                     });
                 }
 
-                // Upsert nodes
+                // Upsert nodes: two-pass to avoid FK constraint on parent_id
+                // Pass 1: upsert all nodes with parentId = null
                 for (const node of body.nodes) {
                     await tx.mindmapNode.upsert({
                         where: { id: node.id },
                         create: {
                             id: node.id,
                             mindmapId: id,
-                            parentId: node.parentId,
+                            parentId: null, // defer parent assignment
                             sortIndex: node.sortIndex,
                             positionX: node.positionX,
                             positionY: node.positionY,
@@ -128,7 +129,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
                             notePlain: node.notePlain,
                         },
                         update: {
-                            parentId: node.parentId,
                             sortIndex: node.sortIndex,
                             positionX: node.positionX,
                             positionY: node.positionY,
@@ -137,6 +137,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
                             noteDoc: node.noteDoc as object ?? undefined,
                             notePlain: node.notePlain,
                         },
+                    });
+                }
+                // Pass 2: set parentId for all nodes
+                for (const node of body.nodes) {
+                    await tx.mindmapNode.update({
+                        where: { id: node.id },
+                        data: { parentId: node.parentId },
                     });
                 }
             }
