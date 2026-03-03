@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as jose from "jose";
 
+// Force Node.js runtime (Edge runtime crashes silently on CentOS 7 kernel 3.10)
+export const runtime = "nodejs";
+
 const PUBLIC_PATHS = ["/login", "/register", "/api/auth", "/api/invite", "/api/health", "/invite"];
 const JWT_SECRET = process.env.JWT_SECRET ?? "dev-secret";
 const ALLOWED_ORIGIN = process.env.APP_PUBLIC_URL || "http://localhost:3000";
