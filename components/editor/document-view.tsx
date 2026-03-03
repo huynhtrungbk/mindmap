@@ -44,6 +44,16 @@ export function DocumentView() {
         editorProps: {
             attributes: { class: "doc-tiptap-editor" },
         },
+        onCreate: ({ editor: ed }) => {
+            // Populate initial content when editor is ready — guaranteed to fire
+            const currentNodes = useMindmapStore.getState().nodes;
+            const difTree = storeToDif(currentNodes);
+            const tiptapJson = difToTiptapJson(difTree);
+            if (tiptapJson.content && (tiptapJson.content as unknown[]).length > 0) {
+                isInternalUpdate.current = true;
+                ed.commands.setContent(tiptapJson);
+            }
+        },
         onSelectionUpdate: () => {
             setSelTick((t) => t + 1);
         },
@@ -60,7 +70,7 @@ export function DocumentView() {
         },
     });
 
-    // Sync store → TipTap editor (external system, not React state)
+    // Sync store → TipTap editor when nodes change externally
     // Use a serialized key to detect actual node content changes
     const nodesKey = useMemo(() =>
         nodes.map((n) => `${n.id}:${n.title}:${n.parentId}:${n.sortIndex}`).join("|"),
@@ -76,7 +86,7 @@ export function DocumentView() {
         const difTree = storeToDif(nodes);
         const tiptapJson = difToTiptapJson(difTree);
         editor.commands.setContent(tiptapJson);
-    }, [editor, nodesKey]);
+    }, [nodesKey]);
 
     // Word count
     const wordCount = editor?.getText().split(/\s+/).filter(Boolean).length ?? 0;
